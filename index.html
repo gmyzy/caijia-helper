@@ -1,108 +1,225 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>小超市语音菜价助手</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小超市语音菜价助手（分类版）</title>
 <link rel="manifest" href="manifest.json">
 <style>
-  body { font-family: "Microsoft Yahei", sans-serif; background: #f9fafb; padding: 20px; }
-  h1 { text-align: center; }
-  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-  th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
-  button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; }
-  #speakBtn { background: #4CAF50; color: white; }
-  #saveBtn { background: #2196F3; color: white; }
-  #msg { margin-top: 10px; font-weight: bold; color: #333; text-align: center; }
+  body { font-family: "Microsoft Yahei", sans-serif; background: #f9fafb; padding: 18px; }
+  h1 { text-align:center; }
+  .controls { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
+  select,input[type=number],input[type=text] { padding:8px; border-radius:6px; border:1px solid #ccc; }
+  button { padding:9px 12px; border:none; border-radius:8px; cursor:pointer; }
+  #saveBtn { background:#2196F3; color:white; }
+  #speakBtn { background:#4CAF50; color:white; }
+  #msg { margin-top:10px; font-weight:700; text-align:center; }
+  section.category { margin-top:16px; }
+  section.category h2 { background:#fff; padding:6px 8px; border-left:6px solid #4CAF50; }
+  table { width:100%; border-collapse:collapse; margin-top:8px; }
+  th,td { padding:6px 8px; border-bottom:1px solid #e6e6e6; text-align:left; }
+  .price-cell { text-align:right; width:120px; }
 </style>
 </head>
 <body>
-<h1>🛒 小超市语音菜价助手</h1>
+<h1>🛒 小超市语音菜价助手（分类版）</h1>
 
-<table id="priceTable">
-  <thead>
-    <tr><th>商品</th><th>价格(元/斤)</th></tr>
-  </thead>
-  <tbody></tbody>
-</table>
+<div class="controls">
+  分类：
+  <select id="categorySelect"></select>
+  商品名：<input type="text" id="itemInput" placeholder="例如：大葱">
+  价格：<input type="number" id="priceInput" placeholder="元/斤">
+  <button id="saveBtn">保存 / 更新</button>
+  <button id="speakBtn">🎤 语音查询</button>
+</div>
 
-<br>
-<input type="text" id="item" placeholder="商品名">
-<input type="number" id="price" placeholder="价格">
-<button id="saveBtn">保存 / 更新</button>
-<button id="speakBtn">🎤 语音查询</button>
+<div id="msg"></div>
 
-<p id="msg"></p>
+<!-- 只显示选中分类的区域 -->
+<div id="selectedCategoryList"></div>
 
 <script>
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(() => {
-      console.log("✅ Service Worker 已注册");
+// 分类与商品映射（保留原数据）
+const CATEGORIES = {
+  "蔬菜": ["大葱", "小葱", "姜", "老蒜", "新蒜", "香菜", "白洋葱", "紫洋葱", "青椒", "尖椒", "螺丝椒", "线椒", "小红辣椒小米辣", "蒜苔", "茄子", "苦菊", "生菜", "生菜球", "西红柿", "黄瓜", "小娃娃菜", "大娃娃菜", "西葫芦", "芹菜", "蒜苗", "丝瓜", "香芹", "小白菜", "西兰花", "菜花", "油麦", "油菜", "菠菜", "韭菜", "茴香", "胡萝卜", "白萝卜", "水萝卜", "空心菜", "洋白菜", "甘蓝", "蘑菇", "香菇", "金针菇", "杏鲍菇", "海鲜菇", "莴苣", "茼蒿", "长豆角", "白不老", "豆王", "土豆", "大白菜", "冬瓜", "北瓜", "贝贝南瓜"],
+  "水果": [],
+  "饮品": ["大矿泉水蓝标", "小矿泉水蓝标", "四季阳光", "大可乐无糖", "大可乐经典", "中可乐", "小可乐", "大雪碧", "中雪碧", "小雪碧", "大冰红茶", "中冰红茶", "小冰红茶", "康师傅绿茶", "蜂蜜柚子", "青梅绿茶", "小茉莉蜜茶", "小茉莉清茶", "大冰糖雪梨", "中冰糖雪梨", "尖叫", "脉动", "紫色美年达", "绿色美年达", "黄色美年达", "醒目", "美汁源果粒橙", "东方树叶", "黑色大窑混合果汁味儿", "白色大窑荔枝味儿", "黄色大窑橙子味儿", "菠萝啤", "山楂树下", "哇哈哈", "阿萨姆奶茶", "王老吉", "东鹏特饮", "哇哈哈小营养快线", "哇哈哈大营养快线", "崂山普啤酒", "崂山精品", "崂山易拉罐儿", "青岛", "U8"],
+  "零食": [],
+  "熟食": [],
+  "肉制品": [],
+  "调味料": []
+};
+
+// 从本地存储加载价格数据
+let prices = JSON.parse(localStorage.getItem('prices') || '{}');
+// 初始化默认价格（如果本地无数据）
+if (!prices || Object.keys(prices).length === 0) {
+  prices = {
+    "大葱": 0, "小葱": 0, "姜": 0, "老蒜": 0, "新蒜": 0, "香菜": 0, "白洋葱": 0, "紫洋葱": 0, "青椒": 0, "尖椒": 0,
+    "螺丝椒": 0, "线椒": 0, "小红辣椒小米辣": 0, "蒜苔": 0, "茄子": 0, "苦菊": 0, "生菜": 0, "生菜球": 0, "西红柿": 0,
+    "黄瓜": 0, "小娃娃菜": 0, "大娃娃菜": 0, "西葫芦": 0, "芹菜": 0, "蒜苗": 0, "丝瓜": 0, "香芹": 0, "小白菜": 0,
+    "西兰花": 0, "菜花": 0, "油麦": 0, "油菜": 0, "菠菜": 0, "韭菜": 0, "茴香": 0, "胡萝卜": 0, "白萝卜": 0,
+    "水萝卜": 0, "空心菜": 0, "洋白菜": 0, "甘蓝": 0, "蘑菇": 0, "香菇": 0, "金针菇": 0, "杏鲍菇": 0, "海鲜菇": 0,
+    "莴苣": 0, "茼蒿": 0, "长豆角": 0, "白不老": 0, "豆王": 0, "土豆": 0, "大白菜": 0, "冬瓜": 0, "北瓜": 0,
+    "贝贝南瓜": 0, "大矿泉水蓝标": 0, "小矿泉水蓝标": 0, "四季阳光": 0, "大可乐无糖": 0, "大可乐经典": 0,
+    "中可乐": 0, "小可乐": 0, "大雪碧": 0, "中雪碧": 0, "小雪碧": 0, "大冰红茶": 0, "中冰红茶": 0, "小冰红茶": 0,
+    "康师傅绿茶": 0, "蜂蜜柚子": 0, "青梅绿茶": 0, "小茉莉蜜茶": 0, "小茉莉清茶": 0, "大冰糖雪梨": 0, "中冰糖雪梨": 0,
+    "尖叫": 0, "脉动": 0, "紫色美年达": 0, "绿色美年达": 0, "黄色美年达": 0, "醒目": 0, "美汁源果粒橙": 0,
+    "东方树叶": 0, "黑色大窑混合果汁味儿": 0, "白色大窑荔枝味儿": 0, "黄色大窑橙子味儿": 0, "菠萝啤": 0,
+    "山楂树下": 0, "哇哈哈": 0, "阿萨姆奶茶": 0, "王老吉": 0, "东鹏特饮": 0, "哇哈哈小营养快线": 0,
+    "哇哈哈大营养快线": 0, "崂山普啤酒": 0, "崂山精品": 0, "崂山易拉罐儿": 0, "青岛": 0, "U8": 0
+  };
+  localStorage.setItem('prices', JSON.stringify(prices));
+}
+
+// 填充分类下拉菜单
+const categorySelect = document.getElementById('categorySelect');
+Object.keys(CATEGORIES).forEach(cat => {
+  const opt = document.createElement('option');
+  opt.value = cat;
+  opt.textContent = cat;
+  categorySelect.appendChild(opt);
+});
+
+// 获取DOM元素
+const itemInput = document.getElementById('itemInput');
+const priceInput = document.getElementById('priceInput');
+const saveBtn = document.getElementById('saveBtn');
+const speakBtn = document.getElementById('speakBtn');
+const msg = document.getElementById('msg');
+const selectedCategoryList = document.getElementById('selectedCategoryList');
+
+// 渲染当前选中分类的商品列表
+function renderSelectedCategoryList(selectedCat) {
+  selectedCategoryList.innerHTML = '';
+  // 创建分类区域
+  const section = document.createElement('section');
+  section.className = 'category';
+  const h2 = document.createElement('h2');
+  h2.textContent = selectedCat;
+  section.appendChild(h2);
+  // 创建表格
+  const tbl = document.createElement('table');
+  const tbody = document.createElement('tbody');
+  // 获取当前分类的商品列表
+  const items = CATEGORIES[selectedCat] || [];
+  // 按名称排序
+  items.sort().forEach(it => {
+    const tr = document.createElement('tr');
+    const tdName = document.createElement('td');
+    tdName.textContent = it;
+    const tdPrice = document.createElement('td');
+    tdPrice.className = 'price-cell';
+    // 显示价格（0则不显示单位）
+    tdPrice.textContent = (prices[it] !== undefined ? prices[it] : '') + (prices[it] > 0 ? ' 元/斤' : '');
+    tr.appendChild(tdName);
+    tr.appendChild(tdPrice);
+    tbody.appendChild(tr);
+  });
+  tbl.appendChild(tbody);
+  section.appendChild(tbl);
+  selectedCategoryList.appendChild(section);
+}
+
+// 初始渲染默认分类（第一个分类）
+renderSelectedCategoryList(categorySelect.value);
+
+// 分类下拉菜单切换时重新渲染
+categorySelect.addEventListener('change', () => {
+  renderSelectedCategoryList(categorySelect.value);
+});
+
+// 保存/更新商品价格
+saveBtn.addEventListener('click', () => {
+  const cat = categorySelect.value;
+  const item = itemInput.value.trim();
+  const price = parseFloat(priceInput.value);
+  // 验证输入
+  if (!item || isNaN(price)) {
+    msg.textContent = '请输入有效的商品名和价格（元/斤）';
+    return;
+  }
+  // 将商品添加到对应分类（如果不存在）
+  if (!CATEGORIES[cat].includes(item)) {
+    CATEGORIES[cat].push(item);
+    // 保存分类数据到本地存储
+    localStorage.setItem('categories', JSON.stringify(CATEGORIES));
+  }
+  // 更新价格
+  prices[item] = price;
+  localStorage.setItem('prices', JSON.stringify(prices));
+  // 提示成功
+  msg.textContent = `已保存：${cat} - ${item} = ${price} 元/斤`;
+  // 重新渲染当前分类列表
+  renderSelectedCategoryList(cat);
+  // 清空输入框
+  itemInput.value = '';
+  priceInput.value = '';
+});
+
+// 语音播报功能
+function speak(text) {
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'zh-CN';
+  speechSynthesis.speak(u);
+}
+
+// 语音查询功能
+speakBtn.addEventListener('click', () => {
+  if (!('webkitSpeechRecognition' in window)) {
+    msg.textContent = '当前浏览器不支持语音识别，请使用Chrome浏览器';
+    return;
+  }
+  const recognition = new webkitSpeechRecognition();
+  recognition.lang = 'zh-CN';
+  recognition.start();
+  msg.textContent = '🎙️ 正在听，请说出分类和商品（例如：蔬菜大葱多少钱）...';
+  // 识别结果处理
+  recognition.onresult = (event) => {
+    let transcript = event.results[0][0].transcript;
+    msg.textContent = '识别到：' + transcript;
+    // 清洗识别文本
+    transcript = transcript.replace(/今天|多少钱|价格/g, '').trim();
+    // 匹配分类
+    let foundCategory = null;
+    Object.keys(CATEGORIES).forEach(cat => {
+      if (transcript.includes(cat)) foundCategory = cat;
     });
-  }
-
-  const tableBody = document.querySelector("#priceTable tbody");
-  const msg = document.getElementById("msg");
-  let prices = JSON.parse(localStorage.getItem("prices")) || {
-    "大白菜": 2.5,
-    "西红柿": 3.8,
-    "黄瓜": 3.2
-  };
-
-  function renderTable() {
-    tableBody.innerHTML = "";
-    for (let [item, price] of Object.entries(prices)) {
-      let tr = document.createElement("tr");
-      tr.innerHTML = `<td>${item}</td><td>${price}</td>`;
-      tableBody.appendChild(tr);
-    }
-  }
-  renderTable();
-
-  document.getElementById("saveBtn").onclick = () => {
-    const item = document.getElementById("item").value.trim();
-    const price = parseFloat(document.getElementById("price").value);
-    if (!item || isNaN(price)) {
-      msg.textContent = "请输入商品和价格";
-      return;
-    }
-    prices[item] = price;
-    localStorage.setItem("prices", JSON.stringify(prices));
-    renderTable();
-    msg.textContent = `已保存：${item} = ${price} 元/斤`;
-  };
-
-  function speak(text) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = "zh-CN";
-    speechSynthesis.speak(utterance);
-  }
-
-  document.getElementById("speakBtn").onclick = () => {
-    if (!('webkitSpeechRecognition' in window)) {
-      msg.textContent = "当前浏览器不支持语音识别，请用 Chrome 浏览器。";
-      return;
-    }
-    const recognition = new webkitSpeechRecognition();
-    recognition.lang = "zh-CN";
-    recognition.start();
-    msg.textContent = "🎙️ 正在听，请说出商品名...";
-
-    recognition.onresult = (event) => {
-      const result = event.results[0][0].transcript.replace("今天", "").replace("多少钱", "").trim();
-      msg.textContent = `识别到：${result}`;
-      if (prices[result] !== undefined) {
-        const text = `${result}今天的价格是${prices[result]}元一斤`;
-        msg.textContent = text;
-        speak(text);
-      } else {
-        const text = `没有找到${result}的价格信息`;
-        msg.textContent = text;
-        speak(text);
+    // 匹配商品
+    let foundItem = null;
+    const allItems = Object.keys(prices);
+    // 优先匹配长名称商品
+    allItems.sort((a, b) => b.length - a.length);
+    for (let it of allItems) {
+      if (transcript.includes(it)) {
+        foundItem = it;
+        break;
       }
-    };
-    recognition.onerror = () => msg.textContent = "❌ 语音识别失败，请重试。";
+    }
+    // 匹配成功则播报价格
+    if (foundItem && prices[foundItem] !== undefined) {
+      const p = prices[foundItem];
+      const categoryText = foundCategory ? `${foundCategory} ` : '';
+      const text = p > 0 ? `${categoryText}${foundItem}今天的价格是 ${p} 元/斤` : `${categoryText}${foundItem}尚未设置价格`;
+      msg.textContent = text;
+      speak(text);
+    } else {
+      const text = '没有找到对应的商品价格，请手动添加或检查名称是否准确';
+      msg.textContent = text;
+      speak(text);
+    }
   };
+  // 识别错误处理
+  recognition.onerror = () => {
+    msg.textContent = '❌ 语音识别失败，请重试';
+  };
+});
+
+// 从本地存储加载分类数据（如果有）
+const savedCats = JSON.parse(localStorage.getItem('categories') || 'null');
+if (savedCats) {
+  Object.assign(CATEGORIES, savedCats);
+}
 </script>
 </body>
 </html>
