@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小超市语音菜价助手</title>
+<link rel="manifest" href="manifest.json">
+<style>
+  body { font-family: "Microsoft Yahei", sans-serif; background: #f9fafb; padding: 20px; }
+  h1 { text-align: center; }
+  table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: center; }
+  button { margin: 5px; padding: 10px 15px; border: none; border-radius: 8px; cursor: pointer; }
+  #speakBtn { background: #4CAF50; color: white; }
+  #saveBtn { background: #2196F3; color: white; }
+  #msg { margin-top: 10px; font-weight: bold; color: #333; text-align: center; }
+</style>
+</head>
+<body>
+<h1>🛒 小超市语音菜价助手</h1>
+
+<table id="priceTable">
+  <thead>
+    <tr><th>商品</th><th>价格(元/斤)</th></tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<br>
+<input type="text" id="item" placeholder="商品名">
+<input type="number" id="price" placeholder="价格">
+<button id="saveBtn">保存 / 更新</button>
+<button id="speakBtn">🎤 语音查询</button>
+
+<p id="msg"></p>
+
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(() => {
+      console.log("✅ Service Worker 已注册");
+    });
+  }
+
+  const tableBody = document.querySelector("#priceTable tbody");
+  const msg = document.getElementById("msg");
+  let prices = JSON.parse(localStorage.getItem("prices")) || {
+    "大白菜": 2.5,
+    "西红柿": 3.8,
+    "黄瓜": 3.2
+  };
+
+  function renderTable() {
+    tableBody.innerHTML = "";
+    for (let [item, price] of Object.entries(prices)) {
+      let tr = document.createElement("tr");
+      tr.innerHTML = `<td>${item}</td><td>${price}</td>`;
+      tableBody.appendChild(tr);
+    }
+  }
+  renderTable();
+
+  document.getElementById("saveBtn").onclick = () => {
+    const item = document.getElementById("item").value.trim();
+    const price = parseFloat(document.getElementById("price").value);
+    if (!item || isNaN(price)) {
+      msg.textContent = "请输入商品和价格";
+      return;
+    }
+    prices[item] = price;
+    localStorage.setItem("prices", JSON.stringify(prices));
+    renderTable();
+    msg.textContent = `已保存：${item} = ${price} 元/斤`;
+  };
+
+  function speak(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "zh-CN";
+    speechSynthesis.speak(utterance);
+  }
+
+  document.getElementById("speakBtn").onclick = () => {
+    if (!('webkitSpeechRecognition' in window)) {
+      msg.textContent = "当前浏览器不支持语音识别，请用 Chrome 浏览器。";
+      return;
+    }
+    const recognition = new webkitSpeechRecognition();
+    recognition.lang = "zh-CN";
+    recognition.start();
+    msg.textContent = "🎙️ 正在听，请说出商品名...";
+
+    recognition.onresult = (event) => {
+      const result = event.results[0][0].transcript.replace("今天", "").replace("多少钱", "").trim();
+      msg.textContent = `识别到：${result}`;
+      if (prices[result] !== undefined) {
+        const text = `${result}今天的价格是${prices[result]}元一斤`;
+        msg.textContent = text;
+        speak(text);
+      } else {
+        const text = `没有找到${result}的价格信息`;
+        msg.textContent = text;
+        speak(text);
+      }
+    };
+    recognition.onerror = () => msg.textContent = "❌ 语音识别失败，请重试。";
+  };
+</script>
+</body>
+</html>
